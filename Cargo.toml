@@ -1,0 +1,23 @@
+[package]
+name = "vector_engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Core Systems
+memmap2 = "0.9"       # For memory-mapped file I/O
+bytemuck = { version = "1.14", features = ["derive"] } # For safe casting of structs to bytes
+thiserror = "1.0"     # For ergonomic error handling
+serde = { version = "1.0", features = ["derive"] } # For serialization (headers/config)
+serde_json = "1.0"    # For exporting index to JSON
+
+# Parallelism & Utils
+rayon = "1.8"         # For parallel iteration (building the index)
+rand = "0.8"          # For random number generation (skip lists / testing)
+
+# Optimization
+# We will use std::arch for SIMD, but 'bitflags' can be useful for options
+bitflags = "2.4"
+
+[dev-dependencies]
+tempfile = "3.8"      # For creating temporary files during tests

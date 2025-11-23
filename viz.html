@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HNSW Visualization</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #1a1a1a; color: #eee; font-family: sans-serif; }
+        canvas { display: block; }
+        #info { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <div id="info">Loading...</div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const info = document.getElementById('info');
+
+        let width, height;
+        let graph = { nodes: [], edges: [] };
+        let transform = { x: 0, y: 0, scale: 100 }; // Zoom/Pan
+        let isDragging = false;
+        let lastMouse = { x: 0, y: 0 };
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            draw();
+        }
+        window.addEventListener('resize', resize);
+
+        // Simple 3D to 2D projection (Isometric-ish)
+        function project(v) {
+            // v is [x, y, z]
+            // Map x,y to screen x,y. z affects scale/depth slightly or just ignore for 2D plot
+            // Let's just plot x and y for now, assuming they are normalized or small.
+            // If vectors are high dim, we'd need PCA/t-SNE. For this demo (3D), we just take first 2 dims.
+            const x = (v[0] || 0) * transform.scale + transform.x + width / 2;
+            const y = (v[1] || 0) * transform.scale + transform.y + height / 2;
+            return { x, y };
+        }
+
+        function draw() {
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(0, 0, width, height);
+
+            if (!graph.nodes.length) return;
+
+            // Draw Edges
+            ctx.strokeStyle = '#444';
+            ctx.lineWidth = 1;
+            graph.edges.forEach(edge => {
+                // Only draw layer 0 edges for clarity, or color by layer
+                if (edge.layer === 0) {
+                    const n1 = graph.nodes[edge.source];
+                    const n2 = graph.nodes[edge.target];
+                    if (!n1 || !n2) return;
+
+                    const p1 = project(n1.vector);
+                    const p2 = project(n2.vector);
+
+                    ctx.beginPath();
+                    ctx.moveTo(p1.x, p1.y);
+                    ctx.lineTo(p2.x, p2.y);
+                    ctx.stroke();
+                }
+            });
+
+            // Draw Nodes
+            graph.nodes.forEach(node => {
+                const p = project(node.vector);
+                ctx.fillStyle = node.layer_max > 0 ? '#ff5555' : '#55aaff'; // Highlight higher layer nodes
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        // Interaction
+        canvas.addEventListener('mousedown', e => { isDragging = true; lastMouse = { x: e.clientX, y: e.clientY }; });
+        canvas.addEventListener('mouseup', () => isDragging = false);
+        canvas.addEventListener('mousemove', e => {
+            if (isDragging) {
+                transform.x += e.clientX - lastMouse.x;
+                transform.y += e.clientY - lastMouse.y;
+                lastMouse = { x: e.clientX, y: e.clientY };
+                draw();
+            }
+            
+            // Hover check (naive)
+            const mx = e.clientX;
+            const my = e.clientY;
+            let hovered = null;
+            for (const node of graph.nodes) {
+                const p = project(node.vector);
+                const dx = mx - p.x;
+                const dy = my - p.y;
+                if (dx*dx + dy*dy < 100) { // 10px radius
+                    hovered = node;
+                    break;
+                }
+            }
+            
+            if (hovered) {
+                info.innerText = `ID: ${hovered.id}\nLayer Max: ${hovered.layer_max}\nVector: [${hovered.vector.map(v=>v.toFixed(2)).join(', ')}]`;
+            } else {
+                info.innerText = `Nodes: ${graph.nodes.length}, Edges: ${graph.edges.length}\nDrag to pan.`;
+            }
+        });
+        
+        canvas.addEventListener('wheel', e => {
+            transform.scale *= e.deltaY > 0 ? 0.9 : 1.1;
+            draw();
+        });
+
+        // Load Data
+        fetch('graph.json')
+            .then(res => res.json())
+            .then(data => {
+                graph = data;
+                info.innerText = `Loaded ${graph.nodes.length} nodes.`;
+                resize();
+            })
+            .catch(err => {
+                info.innerText = "Error loading graph.json. Run 'cargo run --bin inspect' first.";
+                console.error(err);
+            });
+
+        resize();
+    </script>
+</body>
+</html>
