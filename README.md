@@ -97,7 +97,8 @@ graph.json
 
 View in Browser: Open 
 > viz.html
- in your web browser. It will load graph.json and render the HNSW graph interactively.
+
+in your web browser. It will load graph.json and render the HNSW graph interactively.
 
 # Docker Support
 You can run the entire project (benchmarks + visualization) in a Docker container.
