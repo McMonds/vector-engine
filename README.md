@@ -15,13 +15,15 @@ Robust Storage: Custom binary format with magic bytes, versioning, and strict bo
 # Project Structure
 src/core/hnsw.rs
 : In-memory HNSW graph construction and serialization.
+
 src/storage/format.rs
 : On-disk binary format specification (#[repr(C)] structs).
+
 src/storage/mmap.rs
-: 
-MmapIndex
- loader and zero-copy search implementation.
-src/simd/: AVX2 kernels and runtime dispatch logic.
+: MmapIndex loader and zero-copy search implementation.
+ 
+src/simd
+: AVX2 kernels and runtime dispatch logic.
 
 # Usage Example
 
@@ -30,6 +32,7 @@ use vector_engine::core::hnsw::HNSW;
 use vector_engine::storage::mmap::MmapIndex;
 
 fn main() -> Result<(), Box<dyn std::error::Error>>
+
 {
     // 1. Build Index In-Memory
     let mut index = HNSW::new(16, 200, 16, 32);
@@ -55,53 +58,58 @@ fn main() -> Result<(), Box<dyn std::error::Error>>
 
 Run the test suite to verify all components:
 
-cargo test
+> cargo test
+
 This runs:
 
 test_hnsw_basic
 : Verifies in-memory graph construction.
+
 test_save_load_search
 : Verifies the full save-load-search cycle with mmap and SIMD.
-Performance Benchmarks
+
+# Performance Benchmarks
 Running on a standard workstation (Single-threaded Search, AVX2):
 
 Dataset: 10,000 vectors, 128 dimensions
 Build Time: ~4.84s
 Search QPS: ~3,145 Queries Per Second (latency ~0.3ms per query)
-To run benchmarks yourself:
 
-cargo run --release --bin benchmark
-Visualization
+# To run benchmarks yourself:
+
+> cargo run --release --bin benchmark
+
+# Visualization
 You can inspect the graph structure using the included tools.
 
 # Generate Graph JSON:
 
-# First create an index (e.g. via demo)
-cargo run --bin vector_engine
-# Then export it
-cargo run --bin inspect -- demo_index.bin
+First create an index (e.g. via demo)
+
+> cargo run --bin vector_engine
+
+Then export it
+
+> cargo run --bin inspect -- demo_index.bin
+
 This creates 
 graph.json
-.
 
 View in Browser: Open 
-viz.html
- in your web browser. It will load 
-graph.json
- and render the HNSW graph interactively.
+> viz.html
+ in your web browser. It will load graph.json and render the HNSW graph interactively.
 
-#Docker Support
+# Docker Support
 You can run the entire project (benchmarks + visualization) in a Docker container.
 
 # Build
-docker build -t vector-engine .
-Run
-docker run -p 8000:8000 vector-engine
+> docker build -t vector-engine .
+
+# Run
+> docker run -p 8000:8000 vector-engine
+
 This will:
-
-# Run the benchmarks.
-
+Run the benchmarks.
 Generate the graph data.
-
-# Start a web server at http://localhost:8000.
+Start a web server at http://localhost:8000.
 # Open http://localhost:8000/viz.html to see the visualization.
