@@ -1,4 +1,5 @@
-Zero-Copy Vector Engine Walkthrough
+# Zero-Copy Vector Engine 
+
 I have built a high-performance, memory-mapped vector search engine in Rust.
 
 # Key Features
