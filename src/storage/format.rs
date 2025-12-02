@@ -17,7 +17,8 @@ pub struct Header {
     pub vectors_offset: u64,
     pub connections_offset: u64,
     pub checksum: u64,
-    pub padding_2: [u64; 23], // 23 * 8 = 184 bytes. Total 72 + 184 = 256.
+    pub obfuscation_key: u64, // New field for XOR scrambling
+    pub padding_2: [u64; 22], // Reduced padding to keep 256 bytes
 }
 
 #[repr(C)]

@@ -19,5 +19,14 @@ rand = "0.8"          # For random number generation (skip lists / testing)
 # We will use std::arch for SIMD, but 'bitflags' can be useful for options
 bitflags = "2.4"
 
+# Web Server (Advanced Architecture)
+axum = "0.7"
+tokio = { version = "1.0", features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+
 [dev-dependencies]
 tempfile = "3.8"      # For creating temporary files during tests

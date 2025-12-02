@@ -57,14 +57,8 @@ impl MmapIndex {
         bytemuck::cast_slice(&self.mmap[start..start + size])
     }
 
-    pub fn vectors(&self) -> &[f32] {
-        let header = self.header();
-        let start = header.vectors_offset as usize;
-        let count = header.num_elements as usize;
-        let dim = header.dimension as usize;
-        let size = count * dim * 4;
-        bytemuck::cast_slice(&self.mmap[start..start + size])
-    }
+    // Raw vectors are now obfuscated, so we don't expose them directly as a slice.
+    // pub fn vectors(&self) -> &[f32] { ... }
 
     pub fn connections(&self) -> &[u32] {
         let header = self.header();
@@ -73,10 +67,23 @@ impl MmapIndex {
         bytemuck::cast_slice(&self.mmap[start..end])
     }
     
-    pub fn get_vector(&self, id: usize) -> &[f32] {
+    pub fn get_vector(&self, id: usize) -> Vec<f32> {
         let dim = self.header().dimension as usize;
-        let vectors = self.vectors();
-        &vectors[id * dim .. (id + 1) * dim]
+        let start = self.header().vectors_offset as usize + id * dim * 4;
+        let end = start + dim * 4;
+        let raw_bytes = &self.mmap[start..end];
+        
+        // Descramble
+        let key_32 = (self.header().obfuscation_key & 0xFFFFFFFF) as u32;
+        let mut vector = Vec::with_capacity(dim);
+        
+        for chunk in raw_bytes.chunks_exact(4) {
+            let bits = u32::from_le_bytes(chunk.try_into().unwrap());
+            let descrambled = bits ^ key_32;
+            vector.push(f32::from_bits(descrambled));
+        }
+        
+        vector
     }
 
     pub fn search(&self, query: &[f32], k: usize) -> Vec<(usize, f32)> {
@@ -94,7 +101,7 @@ impl MmapIndex {
         }
 
         let mut curr_obj = entry_point;
-        let mut curr_dist = unsafe { dist_func(query, self.get_vector(curr_obj)) };
+        let mut curr_dist = unsafe { dist_func(query, &self.get_vector(curr_obj)) };
 
         for level in (1..=max_layer).rev() {
             let (next_obj, next_dist) = self.search_layer(query, curr_obj, 1, level, dist_func);
@@ -123,7 +130,7 @@ impl MmapIndex {
         let mut visited = HashSet::new();
         let mut candidates = BinaryHeap::new();
         
-        let dist = unsafe { dist_func(query, self.get_vector(entry_point)) };
+        let dist = unsafe { dist_func(query, &self.get_vector(entry_point)) };
         visited.insert(entry_point);
         candidates.push(Reverse(Candidate { distance: dist, node_id: entry_point }));
         
@@ -157,7 +164,7 @@ impl MmapIndex {
                         
                         if !visited.contains(&neighbor_id) {
                             visited.insert(neighbor_id);
-                            let neighbor_dist = unsafe { dist_func(query, self.get_vector(neighbor_id)) };
+                            let neighbor_dist = unsafe { dist_func(query, &self.get_vector(neighbor_id)) };
                             
                             if w.len() < ef || neighbor_dist < w.last().unwrap().distance {
                                 let candidate = Candidate { distance: neighbor_dist, node_id: neighbor_id };

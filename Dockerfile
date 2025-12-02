@@ -13,8 +13,9 @@ COPY viz.html ./
 # Build release binaries
 RUN cargo build --release
 
-# Expose port for visualization
+# Expose port for visualization (8000) and API (8080)
 EXPOSE 8000
+EXPOSE 8080
 
 # Copy entrypoint script
 COPY docker-entrypoint.sh /usr/local/bin/

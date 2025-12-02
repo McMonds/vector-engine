@@ -238,22 +238,25 @@ impl HNSW {
         let connections_offset = vectors_offset + vectors_size as u64;
 
         // 2. Create Header
+        // Generate Obfuscation Key
+        let obfuscation_key: u64 = rand::random();
+
         let header = Header {
             magic: *b"HNSWANN1",
             version: 1,
-            dimension: dim as u32,
-            num_elements: num_nodes as u32,
+            dimension: self.nodes[0].vector.len() as u32,
+            num_elements: self.nodes.len() as u32,
             entry_point_id: self.entry_point.unwrap_or(0) as u32,
-            max_layer: self.nodes.get(self.entry_point.unwrap_or(0)).map(|n| n.layer_max).unwrap_or(0) as u16,
-            padding_1: 0,
-            m_max: self.m as u32,
-            m_max_0: self.m0 as u32,
+            max_layer: self.nodes[self.entry_point.unwrap_or(0)].layer_max as u32,
             ef_construction: self.ef_construction as u32,
-            nodes_offset,
-            vectors_offset,
-            connections_offset,
+            m: self.m as u32,
+            m0: self.m0 as u32,
+            nodes_offset: nodes_offset as u64,
+            vectors_offset: vectors_offset as u64,
+            connections_offset: connections_offset as u64,
+            obfuscation_key,
             checksum: 0, // TODO: Calculate checksum
-            padding_2: [0; 23],
+            padding_2: [0; 22], // Adjusted padding size
         };
 
         file.write_all(bytes_of(&header))?;
