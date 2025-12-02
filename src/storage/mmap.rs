@@ -42,6 +42,19 @@ impl MmapIndex {
             return Err(StorageError::FileTooSmall);
         }
 
+        // Verify Checksum
+        // The checksum covers everything AFTER the header (256 bytes)
+        let header_size = std::mem::size_of::<Header>();
+        if mmap.len() > header_size {
+            let mut hasher = crc32fast::Hasher::new();
+            hasher.update(&mmap[header_size..]);
+            let calculated = hasher.finalize() as u64;
+            
+            if calculated != header.checksum {
+                return Err(StorageError::ChecksumMismatch);
+            }
+        }
+
         Ok(Self { mmap })
     }
 

@@ -108,7 +108,9 @@ impl HNSW {
                 node.connections[level] = neighbors.clone();
                 for &neighbor_id in &neighbors {
                     self.nodes[neighbor_id].connections[level].push(id);
-                    // TODO: Prune connections if > M_max (Skipped for simplicity in Phase 1)
+                    // Prune if > M_max
+                    let max_links = if level == 0 { self.m0 } else { self.m };
+                    self.prune_connections(neighbor_id, level, max_links, dist_func);
                 }
                 
                 // Update entry point for next layer
@@ -200,10 +202,37 @@ impl HNSW {
 
         w.into_iter().map(|c| (c.node_id, c.distance)).collect()
     }
+
+    fn prune_connections(&mut self, node_id: usize, level: usize, max_links: usize, dist_func: crate::simd::DistanceFunc) {
+        let connections = &mut self.nodes[node_id].connections[level];
+        if connections.len() <= max_links {
+            return;
+        }
+
+        // We need to sort neighbors by distance to node_id
+        // We can't use self.nodes inside the closure easily due to borrow checker (mutable borrow of connections vs immutable borrow of vectors).
+        // So we extract neighbor vectors first? No, that's expensive.
+        // We can use indices and unsafe, or just clone the vector of node_id first.
+        let node_vector = self.nodes[node_id].vector.clone();
+        
+        // Calculate distances
+        let mut candidates: Vec<(usize, f32)> = connections.iter().map(|&n_id| {
+            let dist = unsafe { dist_func(&node_vector, &self.nodes[n_id].vector) };
+            (n_id, dist)
+        }).collect();
+
+        // Sort by distance (ascending)
+        candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+        // Keep top max_links
+        *connections = candidates.into_iter().take(max_links).map(|(id, _)| id).collect();
+    }
+
     pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
-        use std::io::Write;
+        use std::io::{Write, Seek, SeekFrom};
         use crate::storage::format::{Header, OnDiskNode};
         use bytemuck::bytes_of;
+        use crc32fast::Hasher;
 
         let mut file = std::fs::File::create(path)?;
         let num_nodes = self.nodes.len();
@@ -214,40 +243,42 @@ impl HNSW {
         let nodes_size = num_nodes * std::mem::size_of::<OnDiskNode>();
         let vectors_size = num_nodes * dim * 4;
         
-        // Calculate connection arena size
-        // Layout: [L0_count, L0_n1... | L1_count... ]
+        // Calculate connection arena size and offsets
         let mut connections_data = Vec::new();
         let mut node_connection_offsets = Vec::with_capacity(num_nodes);
 
+        // We store connections as a flat u32 array: [count, n1, n2...]
+        // The offset in OnDiskNode is the BYTE offset into the connections arena.
+        let mut current_connections_byte_offset = 0;
+
         for node in &self.nodes {
-            node_connection_offsets.push(connections_data.len() as u32);
+            node_connection_offsets.push(current_connections_byte_offset as u32);
             for level in 0..=node.layer_max {
                 let neighbors = &node.connections[level];
                 connections_data.push(neighbors.len() as u32);
                 for &n in neighbors {
                     connections_data.push(n as u32);
                 }
+                current_connections_byte_offset += 4; // for count
+                current_connections_byte_offset += neighbors.len() * 4; // for neighbors
             }
         }
-        
-        // Pad connections to 4 bytes (it's u32 so it's aligned)
-        let connections_size = connections_data.len() * 4;
+        let connections_size = current_connections_byte_offset;
 
         let nodes_offset = header_size as u64;
         let vectors_offset = nodes_offset + nodes_size as u64;
         let connections_offset = vectors_offset + vectors_size as u64;
 
-        // 2. Create Header
-        // Generate Obfuscation Key
+        // 2. Create Placeholder Header
         let obfuscation_key: u64 = rand::random();
 
-        let header = Header {
+        let mut header = Header {
             magic: *b"HNSWANN1",
             version: 1,
-            dimension: self.nodes[0].vector.len() as u32,
-            num_elements: self.nodes.len() as u32,
+            dimension: dim as u32,
+            num_elements: num_nodes as u32,
             entry_point_id: self.entry_point.unwrap_or(0) as u32,
-            max_layer: self.nodes[self.entry_point.unwrap_or(0)].layer_max as u32,
+            max_layer: self.nodes.get(self.entry_point.unwrap_or(0)).map_or(0, |n| n.layer_max) as u32,
             ef_construction: self.ef_construction as u32,
             m: self.m as u32,
             m0: self.m0 as u32,
@@ -255,38 +286,49 @@ impl HNSW {
             vectors_offset: vectors_offset as u64,
             connections_offset: connections_offset as u64,
             obfuscation_key,
-            checksum: 0, // TODO: Calculate checksum
-            padding_2: [0; 22], // Adjusted padding size
+            checksum: 0, 
+            padding_2: [0; 22],
         };
 
         file.write_all(bytes_of(&header))?;
+
+        // Initialize Hasher
+        let mut hasher = Hasher::new();
 
         // 3. Write Nodes
         for (i, node) in self.nodes.iter().enumerate() {
             let on_disk_node = OnDiskNode {
                 layer_count: (node.layer_max + 1) as u8,
                 padding: [0; 3],
-                connections_offset: node_connection_offsets[i], // Index in u32 array, not bytes? 
-                // Wait, the spec said "offset into Connection Data Arena". 
-                // Is it byte offset or index?
-                // "Accessing its neighbors involves reading the connections_offset ... and interpreting the data"
-                // Usually byte offset is more flexible, but index is safer if typed.
-                // Let's use INDEX into the u32 arena for simplicity, or BYTE offset relative to connections_offset.
-                // If I use index, I need to multiply by 4.
-                // Let's use INDEX (u32 index) as stored in `node_connection_offsets`.
+                connections_offset: node_connection_offsets[i],
             };
-            file.write_all(bytes_of(&on_disk_node))?;
+            let bytes = bytes_of(&on_disk_node);
+            file.write_all(bytes)?;
+            hasher.update(bytes);
         }
 
-        // 4. Write Vectors
+        // 4. Write Vectors (Obfuscated)
+        let key_32 = (obfuscation_key & 0xFFFFFFFF) as u32;
         for node in &self.nodes {
-            let bytes = bytemuck::cast_slice(&node.vector);
-            file.write_all(bytes)?;
+            for &val in &node.vector {
+                let bits = val.to_bits();
+                let scrambled = bits ^ key_32;
+                let bytes = scrambled.to_le_bytes();
+                file.write_all(&bytes)?;
+                hasher.update(&bytes);
+            }
         }
 
         // 5. Write Connections
         let bytes = bytemuck::cast_slice(&connections_data);
         file.write_all(bytes)?;
+        hasher.update(bytes);
+
+        // 6. Finalize Checksum and Update Header
+        header.checksum = hasher.finalize() as u64;
+        
+        file.seek(SeekFrom::Start(0))?;
+        file.write_all(bytes_of(&header))?;
 
         Ok(())
     }

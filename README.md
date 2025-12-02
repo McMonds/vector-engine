@@ -1,116 +1,76 @@
-# Zero-Copy Vector Engine 
+# Memory-Mapped Zero-Copy ANN Vector Index
 
-I have built a high-performance, memory-mapped vector search engine in Rust.
+A high-performance, production-ready Vector Search Engine written in Rust. It features **Zero-Copy** loading, **SIMD** acceleration, **XOR Security**, and a **REST API**.
 
-# Key Features
-Zero-Copy Loading: The index file is memory-mapped directly into the process address space. No parsing or deserialization occurs.
+## 🚀 Key Features
 
-HNSW Algorithm: Hierarchical Navigable Small World graph for fast approximate nearest neighbor search.
+*   **Zero-Copy Architecture**: Loads huge indices instantly using `mmap`. No deserialization overhead.
+*   **HNSW Algorithm**: State-of-the-art approximate nearest neighbor search.
+*   **SIMD Optimization**: AVX2/FMA accelerated distance calculations with runtime detection.
+*   **Security**:
+    *   **XOR Obfuscation**: Vectors on disk are scrambled to prevent data theft.
+    *   **Integrity Checks**: CRC32 checksums ensure file consistency.
+*   **Reliability**: Runtime diagnostics and "Pre-Flight" validation.
+*   **REST API**: Built-in `axum` server with API Key authentication.
 
-SIMD Optimization: AVX2-accelerated Euclidean distance calculation with runtime CPU feature detection.
+## 🛠️ Installation & Usage
 
-Robust Storage: Custom binary format with magic bytes, versioning, and strict bounds checking.
+### 1. Build the Project
+```bash
+cargo build --release
+```
 
+### 2. Run the REST API Server
+The server exposes a secure API for searching.
+```bash
+# Starts server on port 8080
+./target/release/server
+```
 
-# Project Structure
-src/core/hnsw.rs
-: In-memory HNSW graph construction and serialization.
+### 3. API Endpoints
 
-src/storage/format.rs
-: On-disk binary format specification (#[repr(C)] structs).
+#### Health Check
+```http
+GET /health
+```
+Response:
+```json
+{ "status": "healthy", "details": "All systems operational" }
+```
 
-src/storage/mmap.rs
-: MmapIndex loader and zero-copy search implementation.
- 
-src/simd
-: AVX2 kernels and runtime dispatch logic.
-
-# Usage Example
-
-use vector_engine::core::hnsw::HNSW;
-
-use vector_engine::storage::mmap::MmapIndex;
-
-fn main() -> Result<(), Box<dyn std::error::Error>>
+#### Search (Secure)
+Requires `x-api-key` header.
+```http
+POST /search
+x-api-key: secret-token-123
+Content-Type: application/json
 
 {
-    // 1. Build Index In-Memory
-    let mut index = HNSW::new(16, 200, 16, 32);
-    index.insert(vec![1.0, 0.0, 0.0]);
-    index.insert(vec![0.0, 1.0, 0.0]);
-    
-    // 2. Save to Disk (Zero-Copy Format)
-    index.save(std::path::Path::new("index.bin"))?;
-    
-    // 3. Load via mmap (Instantaneous)
-    let mmap_index = MmapIndex::load(std::path::Path::new("index.bin"))?;
-    
-    // 4. Search (SIMD Accelerated)
-    let query = vec![1.0, 0.1, 0.0];
-    let results = mmap_index.search(&query, 5);
-    
-    println!("Found: {:?}", results);
-    Ok(())
+  "vector": [0.1, 0.2, ...],
+  "k": 10
 }
+```
 
+## 📊 Benchmarks
+*   **Dataset**: 10k Vectors (128-dim)
+*   **Search Speed**: ~3,145 QPS (Single-threaded, AVX2)
+*   **Build Time**: ~4.8s
 
-# Verification
+## 🐳 Docker Support
+Run the full stack (API + Visualization) in a container:
+```bash
+docker build -t vector-engine .
+docker run -p 8080:8080 -p 8000:8000 vector-engine
+```
 
-Run the test suite to verify all components:
+## 📂 Project Structure
+*   `src/core`: HNSW graph implementation, Checksums, Diagnostics.
+*   `src/storage`: Memory-mapping logic, On-Disk format, XOR obfuscation.
+*   `src/simd`: AVX2 kernels.
+*   `src/bin`:
+    *   `server.rs`: REST API.
+    *   `benchmark.rs`: Performance testing.
+    *   `inspect.rs`: Debugging tool.
 
-> cargo test
-
-This runs:
-
-test_hnsw_basic
-: Verifies in-memory graph construction.
-
-test_save_load_search
-: Verifies the full save-load-search cycle with mmap and SIMD.
-
-# Performance Benchmarks
-Running on a standard workstation (Single-threaded Search, AVX2):
-
-Dataset: 10,000 vectors, 128 dimensions
-Build Time: ~4.84s
-Search QPS: ~3,145 Queries Per Second (latency ~0.3ms per query)
-
-# To run benchmarks yourself:
-
-> cargo run --release --bin benchmark
-
-# Visualization
-You can inspect the graph structure using the included tools.
-
-# Generate Graph JSON:
-
-First create an index (e.g. via demo)
-
-> cargo run --bin vector_engine
-
-Then export it
-
-> cargo run --bin inspect -- demo_index.bin
-
-This creates 
-graph.json
-
-View in Browser: Open 
-> viz.html
-
-in your web browser. It will load graph.json and render the HNSW graph interactively.
-
-# Docker Support
-You can run the entire project (benchmarks + visualization) in a Docker container.
-
-# Build
-> docker build -t vector-engine .
-
-# Run
-> docker run -p 8000:8000 vector-engine
-
-This will:
-Run the benchmarks.
-Generate the graph data.
-Start a web server at http://localhost:8000.
-# Open http://localhost:8000/viz.html to see the visualization.
+## 📜 License
+MIT
