@@ -1,0 +1,175 @@
+flowchart TD
+    %% ======================================================================================
+    %%  MASTER FLOWCHART: MEMORY-MAPPED ZERO-COPY ANN VECTOR INDEX
+    %% ======================================================================================
+    %%  Legend:
+    %%  Blue   : Build & Deployment (Docker, Cargo)
+    %%  Green  : Data Generation & Tools (Benchmark, Inspect)
+    %%  Yellow : Web Service Layer (Axum, API)
+    %%  Purple : Core Engine Logic (HNSW, Diagnostics)
+    %%  Red    : Low-Level Optimization (SIMD, Assembly)
+    %%  Cyan   : Memory & Storage (Mmap, File Layout)
+    %%  Orange : Client Side (Visualization)
+    %% ======================================================================================
+
+    %% --- STYLES ---
+    classDef build fill:#e3f2fd,stroke:#1565c0,stroke-width:2px;
+    classDef tools fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px;
+    classDef service fill:#fffde7,stroke:#fbc02d,stroke-width:2px;
+    classDef core fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px;
+    classDef simd fill:#ffebee,stroke:#c62828,stroke-width:2px;
+    classDef memory fill:#e0f7fa,stroke:#006064,stroke-width:2px;
+    classDef client fill:#fff3e0,stroke:#ef6c00,stroke-width:2px;
+    classDef file fill:#eeeeee,stroke:#616161,stroke-width:2px,stroke-dasharray: 5 5;
+
+    %% --- 1. BUILD & DEPLOYMENT ---
+    subgraph "Build & Deployment"
+        direction TB
+        Docker["Dockerfile<br/>(Multi-stage Build)"]:::build
+        Cargo["Cargo.toml<br/>(Dependencies: memmap2, rayon, axum)"]:::build
+        Entrypoint["docker-entrypoint.sh<br/>(Orchestrator)"]:::build
+        
+        Docker -->|"Builds"| Cargo
+        Cargo -->|"Compiles"| Binaries
+    end
+
+    %% --- 2. BINARIES & TOOLS ---
+    subgraph "Binaries & Tools"
+        direction TB
+        Binaries["/target/release/"]:::tools
+        
+        subgraph "benchmark.rs"
+            BenchBin["benchmark"]:::tools
+            GenData["Generate Random Vectors"]:::tools
+            BuildIndex["Build HNSW Index"]:::tools
+        end
+        
+        subgraph "inspect.rs"
+            InspectBin["inspect"]:::tools
+            ExportJson["Export to graph.json"]:::tools
+        end
+        
+        subgraph "server.rs"
+            ServerBin["server"]:::service
+            AxumApp["Axum App State<br/>(Arc<MmapIndex>)"]:::service
+        end
+
+        Binaries --> BenchBin
+        Binaries --> InspectBin
+        Binaries --> ServerBin
+    end
+
+    %% --- 3. CORE ENGINE ---
+    subgraph "Core Engine (src/core)"
+        direction TB
+        
+        subgraph "hnsw.rs"
+            HNSWStruct["struct HNSW"]:::core
+            Insert["insert(vector)"]:::core
+            Save["save(path)"]:::core
+        end
+        
+        subgraph "diagnostics.rs"
+            Diag["Diagnostics::check_health()"]:::core
+            Rules["Rules: Magic, Bounds, Limits"]:::core
+        end
+    end
+
+    %% --- 4. STORAGE LAYER ---
+    subgraph "Storage Layer (src/storage)"
+        direction TB
+        
+        subgraph "mmap.rs"
+            MmapIndex["struct MmapIndex"]:::memory
+            Load["load(path)"]:::memory
+            Search["search(query, k)"]:::memory
+            GetVec["get_vector(id)"]:::memory
+        end
+
+        subgraph "format.rs (Memory Layout)"
+            Header["Header (256B)<br/>[Magic, Offsets, Checksum]"]:::memory
+            Nodes["OnDiskNode (8B)<br/>[LayerCount, Offset]"]:::memory
+            Vectors["Vectors (Obfuscated)<br/>[XOR Encoded Floats]"]:::memory
+            Connections["Connections (Flat)<br/>[Count, n1, n2...]"]:::memory
+        end
+    end
+
+    %% --- 5. LOW LEVEL OPTIMIZATION ---
+    subgraph "SIMD & Assembly (src/simd)"
+        direction TB
+        
+        subgraph "avx2.rs"
+            AVX2["euclidean_distance_avx2"]:::simd
+            YMM["YMM Registers (256-bit)"]:::simd
+            FMA["_mm256_fmadd_ps"]:::simd
+        end
+    end
+
+    %% --- 6. CLIENT SIDE ---
+    subgraph "Client Side"
+        direction TB
+        Browser["Web Browser"]:::client
+        VizHtml["viz.html (Canvas/JS)"]:::client
+        GraphJson["graph.json"]:::file
+    end
+
+    %% --- 7. DISK ARTIFACTS ---
+    subgraph "Disk Storage"
+        IndexFile["demo_index.bin"]:::file
+    end
+
+    %% ================= CONNECTIONS =================
+
+    %% Orchestration
+    Entrypoint -->|"1. Runs"| BenchBin
+    Entrypoint -->|"2. Runs"| InspectBin
+    Entrypoint -->|"3. Starts"| ServerBin
+    Entrypoint -->|"4. Serves"| VizHtml
+
+    %% Benchmark Flow
+    BenchBin --> GenData
+    GenData --> BuildIndex
+    BuildIndex -->|"Uses"| HNSWStruct
+    HNSWStruct -->|"Calls"| Insert
+    Insert -->|"Calculates Dist"| AVX2
+    BuildIndex -->|"Calls"| Save
+    Save -->|"Writes"| IndexFile
+
+    %% Inspect Flow
+    InspectBin -->|"Reads"| IndexFile
+    InspectBin -->|"Uses"| MmapIndex
+    MmapIndex -->|"Maps"| IndexFile
+    InspectBin -->|"Generates"| GraphJson
+
+    %% Visualization Flow
+    VizHtml -->|"Fetches"| GraphJson
+    VizHtml -->|"Renders 2D Projection"| Browser
+
+    %% Server Flow
+    ServerBin -->|"Initializes"| AxumApp
+    AxumApp -->|"Loads"| MmapIndex
+    
+    %% Request Flow
+    Browser -->|"POST /search"| ServerBin
+    ServerBin -->|"Calls"| Search
+    Search -->|"1. Get Entry Point"| Header
+    Search -->|"2. Traverse Graph"| Nodes
+    Search -->|"3. Read Neighbors"| Connections
+    Search -->|"4. Decode Vector"| Vectors
+    Vectors -->|"5. Calc Dist"| AVX2
+    
+    %% SIMD Details
+    AVX2 -->|"Load 8 floats"| YMM
+    YMM -->|"Fused Multiply Add"| FMA
+
+    %% Diagnostics Flow
+    Browser -->|"GET /health"| ServerBin
+    ServerBin -->|"Calls"| Diag
+    Diag -->|"Validates"| Header
+    Diag -->|"Checks"| Rules
+
+    %% Memory Mapping
+    MmapIndex -.->|"Zero-Copy View"| Header
+    MmapIndex -.->|"Zero-Copy View"| Nodes
+    MmapIndex -.->|"Zero-Copy View"| Vectors
+    MmapIndex -.->|"Zero-Copy View"| Connections

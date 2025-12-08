@@ -43,6 +43,8 @@ It achieves this through a **Zero-Copy Architecture**. By using memory-mapped fi
 
 The engine is built on a layered architecture designed for modularity and performance.
 
+[**View Detailed System Flowchart**](flowchart.mmd)
+
 ```mermaid
 graph TD
     subgraph "Client Layer"
