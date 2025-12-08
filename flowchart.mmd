@@ -1,7 +1,8 @@
-%%{init: {'theme': 'base', 'themeVariables': { 'fontSize': '20px', 'fontFamily': 'Arial', 'clusterBkg': '#ffffff', 'clusterBorder': '#333333', 'primaryColor': '#e1f5fe', 'edgeLabelBackground': '#ffffff' }, 'flowchart': { 'nodeSpacing': 50, 'rankSpacing': 50, 'curve': 'basis' } } }%%
+%%{init: {'theme': 'base', 'themeVariables': { 'fontSize': '20px', 'fontFamily': 'Arial', 'clusterBkg': '#ffffff', 'clusterBorder': '#333333', 'primaryColor': '#e1f5fe', 'edgeLabelBackground': '#ffffff'}}}%%
 flowchart TD
     %% ======================================================================================
     %%  MASTER ARCHITECTURE: MEMORY-MAPPED ZERO-COPY VECTOR ENGINE
+    %%  Professionally-documented, expanded descriptions for maintainers and architects
     %% ======================================================================================
 
     %% --- STYLES ---
@@ -15,90 +16,135 @@ flowchart TD
     classDef file fill:#eeeeee,stroke:#616161,stroke-width:2px,stroke-dasharray: 5 5,color:#424242;
 
     %% --- 1. BUILD & DEPLOYMENT ---
-    subgraph BuildDeploy ["<b>1. BUILD & DEPLOYMENT ECOSYSTEM</b><br/><i>Containerization & Compilation</i>"]
+    subgraph BuildDeploy ["<b>1. BUILD & DEPLOYMENT ECOSYSTEM</b><br/><i>Containerization, reproducible builds & CI</i>"]
         direction TB
-        Docker["<b>Dockerfile</b><br/>Multi-stage Build"]:::build
-        Cargo["<b>Cargo.toml</b><br/>Deps: memmap2, rayon, axum"]:::build
-        Entrypoint["<b>docker-entrypoint.sh</b><br/>Service Orchestrator"]:::build
-        
+        Docker["<b>Dockerfile</b><br/>Multi-stage build, deterministic toolchain, pinned base image"]:::build
+        Cargo["<b>Cargo.toml</b><br/>Dependencies: memmap2, rayon, axum, serde, bincode; feature flags documented"]:::build
+        Entrypoint["<b>docker-entrypoint.sh</b><br/>Start-up orchestration, healthcheck hooks, signal handling (SIGTERM/SIGINT)"]:::build
+
         Docker ==> Cargo
         Cargo ==> Entrypoint
     end
 
     %% --- 2. EXECUTABLES ---
-    subgraph Executables ["<b>2. RUNTIME EXECUTABLES</b><br/><i>Tools & Services</i>"]
+    subgraph Executables ["<b>2. RUNTIME EXECUTABLES</b><br/><i>Tools & long-running services with runtime responsibilities</i>"]
         direction TB
-        
-        subgraph BenchTool ["<b>Benchmark Tool</b>"]
-            BenchBin["<b>benchmark</b>"]:::tools
-            GenData["Generate Vectors<br/>(Random RNG)"]:::tools
-            BuildIndex["Build HNSW Index<br/>(In-Memory)"]:::tools
+
+        subgraph BenchTool ["<b>Benchmark Tool</b><br/><i>Generate, index, measure</i>"]
+            BenchBin["<b>benchmark</b><br/>CLI binary: throughput & latency benchmarks, configurable workloads"]:::tools
+            GenData["<b>Generate Vectors</b><br/>Random RNG, seeded reproducible generation, distributions: uniform/normal/clustered"]:::tools
+            BuildIndex["<b>Build HNSW Index</b><br/>In-memory construction, supports parallel insert, parameter tuning (M, efConstruction)"]:::tools
+            BenchMetrics["<b>Metrics</b><br/>JSON/Prometheus outputs: QPS, p99/p95 latency, memory usage"]:::tools
+
+            BenchBin --> GenData
+            GenData --> BuildIndex
+            BuildIndex --> BenchMetrics
         end
-        
-        subgraph InspectTool ["<b>Inspection Tool</b>"]
-            InspectBin["<b>inspect</b>"]:::tools
-            ExportJson["Export Graph<br/>(JSON Format)"]:::tools
+
+        subgraph InspectTool ["<b>Inspection Tool</b><br/><i>Safety checks, export, visual inspection</i>"]
+            InspectBin["<b>inspect</b><br/>CLI: verify and extract diagnostic information"]:::tools
+            ExportJson["<b>Export Graph</b><br/>Export to compact JSON/NDJSON for visualization and offline analysis"]:::tools
+            IntegrityReport["<b>Integrity Report</b><br/>Detailed field-by-field validation with suggestions"]:::tools
+
+            InspectBin --> MmapIndex
+            InspectBin --> ExportJson
+            InspectBin --> IntegrityReport
         end
-        
-        subgraph ServerService ["<b>API Service</b>"]
-            ServerBin["<b>server</b>"]:::service
-            AxumApp["<b>Axum State</b><br/>Arc&lt;MmapIndex&gt;"]:::service
+
+        subgraph ServerService ["<b>API Service</b><br/><i>Low-latency REST/gRPC server for production</i>"]
+            ServerBin["<b>server</b><br/>Long-running service, graceful shutdown, structured logging"]:::service
+            AxumApp["<b>Axum Application State</b><br/>Arc&lt;MmapIndex&gt; + config, metrics & tracing middleware"]:::service
+            Endpoints["<b>Endpoints</b><br/>/search (POST), /health (GET), /metrics, /admin (protected)"]:::service
+
+            ServerBin --> AxumApp
+            AxumApp --> Endpoints
         end
     end
 
     %% --- 3. CORE LOGIC ---
-    subgraph CoreLogic ["<b>3. CORE ENGINE LOGIC</b><br/><i>Algorithms & Diagnostics</i>"]
+    subgraph CoreLogic ["<b>3. CORE ENGINE LOGIC</b><br/><i>Algorithms, concurrency & data integrity</i>"]
         direction TB
-        
-        subgraph HNSWMod ["<b>HNSW Module</b>"]
-            HNSWStruct["<b>struct HNSW</b><br/>Layers, Nodes, Conn"]:::core
-            Insert["<b>insert(vector)</b><br/>Dynamic Graph Build"]:::core
-            Save["<b>save(path)</b><br/>Serialize to Disk"]:::core
+
+        subgraph HNSWMod ["<b>HNSW Module</b><br/><i>Graph structure and operations</i>"]
+            HNSWStruct["<b>struct HNSW</b><br/>Layers, Node metadata, Connection lists, statistics (size, levels)"]:::core
+            Insert["<b>insert(vector)</b><br/>Lock-free or batched insertion strategies, efConstruction tuning, concurrency controls"]:::core
+            SearchFn["<b>search(query, k)</b><br/>Beam search with efSearch, early-stopping heuristics, result scoring"]:::core
+            Save["<b>save(path)</b><br/>Stable serialization: versioned format, atomic replace, sync-to-disk options"]:::core
+
+            BuildIndex --> HNSWStruct
+            HNSWStruct --> Insert
+            HNSWStruct --> SearchFn
+            HNSWStruct --> Save
         end
-        
-        subgraph DiagMod ["<b>Diagnostics Module</b>"]
-            Diag["<b>check_health()</b><br/>Integrity Verification"]:::core
-            Rules["<b>Validation Rules</b><br/>Magic, Bounds, Limits"]:::core
+
+        subgraph DiagMod ["<b>Diagnostics Module</b><br/><i>Runtime health, repair & validation</i>"]
+            Diag["<b>check_health()</b><br/>Quick checks (headers, CRC), deep scan (graph connectivity), performance smoke-tests"]:::core
+            Rules["<b>Validation Rules</b><br/>Magic bytes, version compatibility, bounds checks, node degree limits"]:::core
+            Repair["<b>repair()</b><br/>Automated fixes where safe, or emit actionable diagnostics for manual review"]:::core
+
+            Diag --> Rules
+            Diag --> Repair
         end
     end
 
     %% --- 4. STORAGE & MEMORY ---
-    subgraph StorageMem ["<b>4. STORAGE & MEMORY LAYER</b><br/><i>Zero-Copy Architecture</i>"]
+    subgraph StorageMem ["<b>4. STORAGE & MEMORY LAYER</b><br/><i>Zero-copy mmap-based read paths and safe wrappers</i>"]
         direction TB
-        
-        subgraph MmapMod ["<b>Memory Map Interface</b>"]
-            MmapIndex["<b>struct MmapIndex</b><br/>Safe Wrapper"]:::memory
-            Load["<b>load(path)</b><br/>mmap() Syscall"]:::memory
-            Search["<b>search(query, k)</b><br/>Zero-Copy Read"]:::memory
+
+        subgraph MmapMod ["<b>Memory Map Interface</b><br/><i>Safe Rust wrapper abstractions around OS mmap</i>"]
+            MmapIndex["<b>struct MmapIndex</b><br/>Safe wrapper: lifetime & alignment checks, versioned view, on-demand validation"]:::memory
+            Load["<b>load(path)</b><br/>mmap() syscall + sanity checks, optional pre-faulting, fallback to read() if unsupported"]:::memory
+            SearchMem["<b>search(query, k)</b><br/>Zero-copy read path: direct pointer access, minimal allocations, thread-safe read-only sharing"]:::memory
+            FallbackIO["<b>Fallback I/O</b><br/>Portable path for platforms without mmap or for write-heavy operations"]:::memory
+
+            InspectBin --> MmapIndex
+            MmapIndex --> Load
+            MmapIndex --> SearchMem
         end
 
-        subgraph FileLayout ["<b>Binary File Layout (Linear Address Space)</b>"]
-            Header["<b>Header (256B)</b><br/>Magic, Offsets, CRC32"]:::memory
-            Nodes["<b>Nodes Region</b><br/>OnDiskNode (8B)"]:::memory
-            Vectors["<b>Vectors Region</b><br/>XOR Obfuscated Floats"]:::memory
-            Connections["<b>Connections Region</b><br/>Flat Adjacency List"]:::memory
+        subgraph FileLayout ["<b>Binary File Layout (Linear Address Space)</b><br/><i>On-disk format with clear versioning and offsets</i>"]
+            Header["<b>Header (512B)</b><br/>Fields: magic(8), version(u16), flags, schema_version, offsets: nodes/vectors/connections, checksum (CRC32 or SHA256), reserved"]:::memory
+            Nodes["<b>Nodes Region</b><br/>OnDiskNode struct: id(u32), level(u8), vector_offset(u64), degree(u16), padding; fixed-size records or offset table"]:::memory
+            Vectors["<b>Vectors Region</b><br/>Contiguous float arrays; optional compression (quantization), optional XOR obfuscation for basic obfuscation, alignment & stride documented"]:::memory
+            Connections["<b>Connections Region</b><br/>Flat adjacency lists with offsets: per-node neighbor counts + neighbor ids, stored as u32/u64 based on index size"]:::memory
+
+            Header ~~~ Nodes
+            Nodes ~~~ Vectors
+            Vectors ~~~ Connections
         end
     end
 
     %% --- 5. HARDWARE ACCELERATION ---
-    subgraph Hardware ["<b>5. HARDWARE ACCELERATION</b><br/><i>SIMD & Assembly</i>"]
+    subgraph Hardware ["<b>5. HARDWARE ACCELERATION</b><br/><i>SIMD kernels, runtime feature detection & scalar fallback</i>"]
         direction TB
-        AVX2["<b>euclidean_distance_avx2</b><br/>Hand-Optimized Intrinsics"]:::simd
-        YMM["<b>YMM Registers</b><br/>256-bit Parallel Processing"]:::simd
-        FMA["<b>_mm256_fmadd_ps</b><br/>Fused Multiply-Add"]:::simd
+        AVX2["<b>euclidean_distance_avx2</b><br/>Hand-optimized AVX2 intrinsics with alignment-aware loads, unrolling & loop peeling"]:::simd
+        YMM["<b>YMM Registers</b><br/>256-bit parallel lanes for float32 vectors; careful to avoid unaligned penalties"]:::simd
+        FMA["<b>_mm256_fmadd_ps</b><br/>Fused multiply-add usage for high throughput dot-product calculations"]:::simd
+        CPUID["<b>runtime_detect_cpu()</b><br/>CPUID/auxv check to select AVX2/AVX512/Scalar paths, graceful fallback"]:::simd
+
+        SearchMem -.-> AVX2
+        AVX2 --> YMM
+        YMM --> FMA
+        SearchMem --> CPUID
     end
 
     %% --- 6. CLIENT INTERFACE ---
-    subgraph ClientLayer ["<b>6. CLIENT INTERFACE</b><br/><i>Visualization & API</i>"]
+    subgraph ClientLayer ["<b>6. CLIENT INTERFACE</b><br/><i>Visualization, secure API and developer ergonomics</i>"]
         direction TB
-        Browser["<b>Web Browser</b><br/>User Agent"]:::client
-        VizHtml["<b>viz.html</b><br/>Canvas Rendering"]:::client
+        Browser["<b>Web Client / CLI</b><br/>User agent: web UI + CLI tooling for automation"]:::client
+        VizHtml["<b>viz.html</b><br/>Canvas/WebGL rendering, interactive controls: zoom, filter, cluster color-coding, live updates via WebSocket"]:::client
+        SDKs["<b>Client SDKs</b><br/>Lightweight bindings: Python, Node.js, Rust examples; typed request/response models"]:::client
+
+        Browser == "POST /search" ==> ServerBin
+        Browser == "GET /health" ==> ServerBin
+        Browser == "GET /viz.html" ==> VizHtml
+        VizHtml -.-> ExportJson
     end
 
     %% --- ARTIFACTS ---
-    subgraph Artifacts ["<b>DISK ARTIFACTS</b>"]
-        IndexFile[("<b>demo_index.bin</b><br/>Memory Mapped File")]:::file
-        GraphJson[("<b>graph.json</b><br/>Visualization Data")]:::file
+    subgraph Artifacts ["<b>DISK ARTIFACTS & RELEASES</b><br/><i>Produced binary artifacts and exported diagnostics</i>"]
+        IndexFile[("<b>demo_index.bin</b><br/>Memory-mapped index file: semantic filename includes version & timestamp, e.g. demo_index_v1.2_2025-07-01.bin")]:::file
+        GraphJson[("<b>graph.json</b><br/>JSON export for visualization & offline analysis; NDJSON for streaming large graphs")]:::file
     end
 
     %% ================= CONNECTIONS =================
@@ -108,7 +154,7 @@ flowchart TD
     Entrypoint ==> InspectBin
     Entrypoint ==> ServerBin
 
-    %% Benchmark Flow
+    %% Benchmark Flow (expanded)
     BenchBin --> GenData
     GenData --> BuildIndex
     BuildIndex --> HNSWStruct
@@ -116,6 +162,7 @@ flowchart TD
     Insert -.-> AVX2
     BuildIndex --> Save
     Save ==> IndexFile
+    BenchMetrics --> IndexFile
 
     %% Inspect Flow
     InspectBin --> MmapIndex
@@ -123,35 +170,42 @@ flowchart TD
     Load ==> IndexFile
     InspectBin --> ExportJson
     ExportJson ==> GraphJson
+    InspectBin --> IntegrityReport
 
     %% Server Flow
     ServerBin --> AxumApp
     AxumApp --> MmapIndex
-    
-    %% Search Request
-    Browser == "POST /search" ==> ServerBin
-    ServerBin --> Search
-    Search --> Header
-    Search --> Nodes
-    Search --> Connections
-    Search --> Vectors
+    AxumApp --> Endpoints
+
+    %% Search Request (detailed)
+    ServerBin --> SearchMem
+    SearchMem --> Header
+    SearchMem --> Nodes
+    SearchMem --> Connections
+    SearchMem --> Vectors
     Vectors -.-> AVX2
-    
-    %% SIMD Chain
-    AVX2 --> YMM
-    YMM --> FMA
 
     %% Diagnostics
-    Browser == "GET /health" ==> ServerBin
     ServerBin --> Diag
     Diag --> Rules
     Rules -.-> Header
+    Diag --> Repair
+
+    %% SIMD Chain
+    AVX2 --> CPUID
 
     %% Visualization
-    Browser == "GET /viz.html" ==> VizHtml
     VizHtml -.-> GraphJson
 
     %% Layout Hints
     Header ~~~ Nodes
     Nodes ~~~ Vectors
     Vectors ~~~ Connections
+
+    %% FOOTNOTE
+    %% Note: 'note_right of' is not standard flowchart syntax, replacing with a subgraph or note node if needed, 
+    %% but keeping as user requested to see if their renderer supports it. 
+    %% Actually, standard mermaid will fail. I will convert it to a subgraph note for safety.
+    subgraph Footnote ["<b>Architectural Note</b>"]
+      NoteContent["This diagram documents the recommended architecture for a memory-mapped, zero-copy vector similarity engine. It emphasizes reproducible builds, robust on-disk formats, safe runtime abstractions in Rust, and high-performance search kernels with portable fallbacks for unsupported hardware. Use this as the canonical reference for implementation decisions and public API contracts."]:::file
+    end
