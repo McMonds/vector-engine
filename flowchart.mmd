@@ -1,175 +1,157 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'fontSize': '20px', 'fontFamily': 'Arial', 'clusterBkg': '#ffffff', 'clusterBorder': '#333333', 'primaryColor': '#e1f5fe', 'edgeLabelBackground': '#ffffff' }, 'flowchart': { 'nodeSpacing': 50, 'rankSpacing': 50, 'curve': 'basis' } } }%%
 flowchart TD
     %% ======================================================================================
-    %%  MASTER FLOWCHART: MEMORY-MAPPED ZERO-COPY ANN VECTOR INDEX
-    %% ======================================================================================
-    %%  Legend:
-    %%  Blue   : Build & Deployment (Docker, Cargo)
-    %%  Green  : Data Generation & Tools (Benchmark, Inspect)
-    %%  Yellow : Web Service Layer (Axum, API)
-    %%  Purple : Core Engine Logic (HNSW, Diagnostics)
-    %%  Red    : Low-Level Optimization (SIMD, Assembly)
-    %%  Cyan   : Memory & Storage (Mmap, File Layout)
-    %%  Orange : Client Side (Visualization)
+    %%  MASTER ARCHITECTURE: MEMORY-MAPPED ZERO-COPY VECTOR ENGINE
     %% ======================================================================================
 
     %% --- STYLES ---
-    classDef build fill:#e3f2fd,stroke:#1565c0,stroke-width:2px;
-    classDef tools fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px;
-    classDef service fill:#fffde7,stroke:#fbc02d,stroke-width:2px;
-    classDef core fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px;
-    classDef simd fill:#ffebee,stroke:#c62828,stroke-width:2px;
-    classDef memory fill:#e0f7fa,stroke:#006064,stroke-width:2px;
-    classDef client fill:#fff3e0,stroke:#ef6c00,stroke-width:2px;
-    classDef file fill:#eeeeee,stroke:#616161,stroke-width:2px,stroke-dasharray: 5 5;
+    classDef build fill:#e3f2fd,stroke:#1565c0,stroke-width:3px,color:#0d47a1;
+    classDef tools fill:#e8f5e9,stroke:#2e7d32,stroke-width:3px,color:#1b5e20;
+    classDef service fill:#fffde7,stroke:#fbc02d,stroke-width:3px,color:#f57f17;
+    classDef core fill:#f3e5f5,stroke:#7b1fa2,stroke-width:3px,color:#4a148c;
+    classDef simd fill:#ffebee,stroke:#c62828,stroke-width:3px,color:#b71c1c;
+    classDef memory fill:#e0f7fa,stroke:#006064,stroke-width:3px,color:#006064;
+    classDef client fill:#fff3e0,stroke:#ef6c00,stroke-width:3px,color:#e65100;
+    classDef file fill:#eeeeee,stroke:#616161,stroke-width:2px,stroke-dasharray: 5 5,color:#424242;
 
     %% --- 1. BUILD & DEPLOYMENT ---
-    subgraph "Build & Deployment"
+    subgraph BuildDeploy ["<b>1. BUILD & DEPLOYMENT ECOSYSTEM</b><br/><i>Containerization & Compilation</i>"]
         direction TB
-        Docker["Dockerfile<br/>(Multi-stage Build)"]:::build
-        Cargo["Cargo.toml<br/>(Dependencies: memmap2, rayon, axum)"]:::build
-        Entrypoint["docker-entrypoint.sh<br/>(Orchestrator)"]:::build
+        Docker["<b>Dockerfile</b><br/>Multi-stage Build"]:::build
+        Cargo["<b>Cargo.toml</b><br/>Deps: memmap2, rayon, axum"]:::build
+        Entrypoint["<b>docker-entrypoint.sh</b><br/>Service Orchestrator"]:::build
         
-        Docker -->|"Builds"| Cargo
-        Cargo -->|"Compiles"| Binaries
+        Docker ==> Cargo
+        Cargo ==> Entrypoint
     end
 
-    %% --- 2. BINARIES & TOOLS ---
-    subgraph "Binaries & Tools"
-        direction TB
-        Binaries["/target/release/"]:::tools
-        
-        subgraph "benchmark.rs"
-            BenchBin["benchmark"]:::tools
-            GenData["Generate Random Vectors"]:::tools
-            BuildIndex["Build HNSW Index"]:::tools
-        end
-        
-        subgraph "inspect.rs"
-            InspectBin["inspect"]:::tools
-            ExportJson["Export to graph.json"]:::tools
-        end
-        
-        subgraph "server.rs"
-            ServerBin["server"]:::service
-            AxumApp["Axum App State<br/>(Arc<MmapIndex>)"]:::service
-        end
-
-        Binaries --> BenchBin
-        Binaries --> InspectBin
-        Binaries --> ServerBin
-    end
-
-    %% --- 3. CORE ENGINE ---
-    subgraph "Core Engine (src/core)"
+    %% --- 2. EXECUTABLES ---
+    subgraph Executables ["<b>2. RUNTIME EXECUTABLES</b><br/><i>Tools & Services</i>"]
         direction TB
         
-        subgraph "hnsw.rs"
-            HNSWStruct["struct HNSW"]:::core
-            Insert["insert(vector)"]:::core
-            Save["save(path)"]:::core
+        subgraph BenchTool ["<b>Benchmark Tool</b>"]
+            BenchBin["<b>benchmark</b>"]:::tools
+            GenData["Generate Vectors<br/>(Random RNG)"]:::tools
+            BuildIndex["Build HNSW Index<br/>(In-Memory)"]:::tools
         end
         
-        subgraph "diagnostics.rs"
-            Diag["Diagnostics::check_health()"]:::core
-            Rules["Rules: Magic, Bounds, Limits"]:::core
+        subgraph InspectTool ["<b>Inspection Tool</b>"]
+            InspectBin["<b>inspect</b>"]:::tools
+            ExportJson["Export Graph<br/>(JSON Format)"]:::tools
+        end
+        
+        subgraph ServerService ["<b>API Service</b>"]
+            ServerBin["<b>server</b>"]:::service
+            AxumApp["<b>Axum State</b><br/>Arc&lt;MmapIndex&gt;"]:::service
         end
     end
 
-    %% --- 4. STORAGE LAYER ---
-    subgraph "Storage Layer (src/storage)"
+    %% --- 3. CORE LOGIC ---
+    subgraph CoreLogic ["<b>3. CORE ENGINE LOGIC</b><br/><i>Algorithms & Diagnostics</i>"]
         direction TB
         
-        subgraph "mmap.rs"
-            MmapIndex["struct MmapIndex"]:::memory
-            Load["load(path)"]:::memory
-            Search["search(query, k)"]:::memory
-            GetVec["get_vector(id)"]:::memory
+        subgraph HNSWMod ["<b>HNSW Module</b>"]
+            HNSWStruct["<b>struct HNSW</b><br/>Layers, Nodes, Conn"]:::core
+            Insert["<b>insert(vector)</b><br/>Dynamic Graph Build"]:::core
+            Save["<b>save(path)</b><br/>Serialize to Disk"]:::core
         end
-
-        subgraph "format.rs (Memory Layout)"
-            Header["Header (256B)<br/>[Magic, Offsets, Checksum]"]:::memory
-            Nodes["OnDiskNode (8B)<br/>[LayerCount, Offset]"]:::memory
-            Vectors["Vectors (Obfuscated)<br/>[XOR Encoded Floats]"]:::memory
-            Connections["Connections (Flat)<br/>[Count, n1, n2...]"]:::memory
+        
+        subgraph DiagMod ["<b>Diagnostics Module</b>"]
+            Diag["<b>check_health()</b><br/>Integrity Verification"]:::core
+            Rules["<b>Validation Rules</b><br/>Magic, Bounds, Limits"]:::core
         end
     end
 
-    %% --- 5. LOW LEVEL OPTIMIZATION ---
-    subgraph "SIMD & Assembly (src/simd)"
+    %% --- 4. STORAGE & MEMORY ---
+    subgraph StorageMem ["<b>4. STORAGE & MEMORY LAYER</b><br/><i>Zero-Copy Architecture</i>"]
         direction TB
         
-        subgraph "avx2.rs"
-            AVX2["euclidean_distance_avx2"]:::simd
-            YMM["YMM Registers (256-bit)"]:::simd
-            FMA["_mm256_fmadd_ps"]:::simd
+        subgraph MmapMod ["<b>Memory Map Interface</b>"]
+            MmapIndex["<b>struct MmapIndex</b><br/>Safe Wrapper"]:::memory
+            Load["<b>load(path)</b><br/>mmap() Syscall"]:::memory
+            Search["<b>search(query, k)</b><br/>Zero-Copy Read"]:::memory
+        end
+
+        subgraph FileLayout ["<b>Binary File Layout (Linear Address Space)</b>"]
+            Header["<b>Header (256B)</b><br/>Magic, Offsets, CRC32"]:::memory
+            Nodes["<b>Nodes Region</b><br/>OnDiskNode (8B)"]:::memory
+            Vectors["<b>Vectors Region</b><br/>XOR Obfuscated Floats"]:::memory
+            Connections["<b>Connections Region</b><br/>Flat Adjacency List"]:::memory
         end
     end
 
-    %% --- 6. CLIENT SIDE ---
-    subgraph "Client Side"
+    %% --- 5. HARDWARE ACCELERATION ---
+    subgraph Hardware ["<b>5. HARDWARE ACCELERATION</b><br/><i>SIMD & Assembly</i>"]
         direction TB
-        Browser["Web Browser"]:::client
-        VizHtml["viz.html (Canvas/JS)"]:::client
-        GraphJson["graph.json"]:::file
+        AVX2["<b>euclidean_distance_avx2</b><br/>Hand-Optimized Intrinsics"]:::simd
+        YMM["<b>YMM Registers</b><br/>256-bit Parallel Processing"]:::simd
+        FMA["<b>_mm256_fmadd_ps</b><br/>Fused Multiply-Add"]:::simd
     end
 
-    %% --- 7. DISK ARTIFACTS ---
-    subgraph "Disk Storage"
-        IndexFile["demo_index.bin"]:::file
+    %% --- 6. CLIENT INTERFACE ---
+    subgraph ClientLayer ["<b>6. CLIENT INTERFACE</b><br/><i>Visualization & API</i>"]
+        direction TB
+        Browser["<b>Web Browser</b><br/>User Agent"]:::client
+        VizHtml["<b>viz.html</b><br/>Canvas Rendering"]:::client
+    end
+
+    %% --- ARTIFACTS ---
+    subgraph Artifacts ["<b>DISK ARTIFACTS</b>"]
+        IndexFile[("<b>demo_index.bin</b><br/>Memory Mapped File")]:::file
+        GraphJson[("<b>graph.json</b><br/>Visualization Data")]:::file
     end
 
     %% ================= CONNECTIONS =================
 
-    %% Orchestration
-    Entrypoint -->|"1. Runs"| BenchBin
-    Entrypoint -->|"2. Runs"| InspectBin
-    Entrypoint -->|"3. Starts"| ServerBin
-    Entrypoint -->|"4. Serves"| VizHtml
+    %% Build to Runtime
+    Entrypoint ==> BenchBin
+    Entrypoint ==> InspectBin
+    Entrypoint ==> ServerBin
 
     %% Benchmark Flow
     BenchBin --> GenData
     GenData --> BuildIndex
-    BuildIndex -->|"Uses"| HNSWStruct
-    HNSWStruct -->|"Calls"| Insert
-    Insert -->|"Calculates Dist"| AVX2
-    BuildIndex -->|"Calls"| Save
-    Save -->|"Writes"| IndexFile
+    BuildIndex --> HNSWStruct
+    HNSWStruct --> Insert
+    Insert -.-> AVX2
+    BuildIndex --> Save
+    Save ==> IndexFile
 
     %% Inspect Flow
-    InspectBin -->|"Reads"| IndexFile
-    InspectBin -->|"Uses"| MmapIndex
-    MmapIndex -->|"Maps"| IndexFile
-    InspectBin -->|"Generates"| GraphJson
-
-    %% Visualization Flow
-    VizHtml -->|"Fetches"| GraphJson
-    VizHtml -->|"Renders 2D Projection"| Browser
+    InspectBin --> MmapIndex
+    MmapIndex --> Load
+    Load ==> IndexFile
+    InspectBin --> ExportJson
+    ExportJson ==> GraphJson
 
     %% Server Flow
-    ServerBin -->|"Initializes"| AxumApp
-    AxumApp -->|"Loads"| MmapIndex
+    ServerBin --> AxumApp
+    AxumApp --> MmapIndex
     
-    %% Request Flow
-    Browser -->|"POST /search"| ServerBin
-    ServerBin -->|"Calls"| Search
-    Search -->|"1. Get Entry Point"| Header
-    Search -->|"2. Traverse Graph"| Nodes
-    Search -->|"3. Read Neighbors"| Connections
-    Search -->|"4. Decode Vector"| Vectors
-    Vectors -->|"5. Calc Dist"| AVX2
+    %% Search Request
+    Browser == "POST /search" ==> ServerBin
+    ServerBin --> Search
+    Search --> Header
+    Search --> Nodes
+    Search --> Connections
+    Search --> Vectors
+    Vectors -.-> AVX2
     
-    %% SIMD Details
-    AVX2 -->|"Load 8 floats"| YMM
-    YMM -->|"Fused Multiply Add"| FMA
+    %% SIMD Chain
+    AVX2 --> YMM
+    YMM --> FMA
 
-    %% Diagnostics Flow
-    Browser -->|"GET /health"| ServerBin
-    ServerBin -->|"Calls"| Diag
-    Diag -->|"Validates"| Header
-    Diag -->|"Checks"| Rules
+    %% Diagnostics
+    Browser == "GET /health" ==> ServerBin
+    ServerBin --> Diag
+    Diag --> Rules
+    Rules -.-> Header
 
-    %% Memory Mapping
-    MmapIndex -.->|"Zero-Copy View"| Header
-    MmapIndex -.->|"Zero-Copy View"| Nodes
-    MmapIndex -.->|"Zero-Copy View"| Vectors
-    MmapIndex -.->|"Zero-Copy View"| Connections
+    %% Visualization
+    Browser == "GET /viz.html" ==> VizHtml
+    VizHtml -.-> GraphJson
+
+    %% Layout Hints
+    Header ~~~ Nodes
+    Nodes ~~~ Vectors
+    Vectors ~~~ Connections
