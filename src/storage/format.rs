@@ -17,8 +17,9 @@ pub struct Header {
     pub vectors_offset: u64,
     pub connections_offset: u64,
     pub checksum: u64,
-    pub obfuscation_key: u64, // New field for XOR scrambling
-    pub padding_2: [u64; 22], // Reduced padding to keep 256 bytes
+    pub obfuscation_key: u64,
+    pub quantized_vectors_offset: u64, // Offset to u8 vector arena
+    pub padding_2: [u64; 21], // Reduced by 1 u64
 }
 
 #[repr(C)]

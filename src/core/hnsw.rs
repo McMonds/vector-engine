@@ -1,4 +1,4 @@
-use crate::simd::distance::euclidean_distance;
+
 use rand::Rng;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
@@ -60,64 +60,50 @@ impl HNSW {
         let id = self.nodes.len();
         let layer_max = self.random_level();
         
-        let mut node = Node {
+        let node = Node {
             id,
             vector: vector.clone(),
             layer_max,
             connections: vec![Vec::new(); layer_max + 1],
         };
+        
+        // Push immediately to allow neighbor pruning logic to access this node
+        self.nodes.push(node);
 
         if let Some(entry_point) = self.entry_point {
             let mut curr_obj = entry_point;
-            let mut curr_dist = unsafe { dist_func(&vector, &self.nodes[curr_obj].vector) };
+            let mut _curr_dist = unsafe { dist_func(&vector, &self.nodes[curr_obj].vector) };
 
             let max_layer_global = self.nodes[entry_point].layer_max;
-            
-            // 1. Zoom down from global top to the level where we start inserting
-            // If new node is higher, we start at max_layer_global.
-            // If new node is lower, we zoom down to layer_max + 1.
-            // So we zoom to min(layer_max, max_layer_global) + 1?
-            // No, we zoom down to the highest layer that BOTH share (or the one above it).
-            // We need to find the entry point for the highest layer the new node participates in, 
-            // OR the highest layer of the graph, whichever is lower.
-            
-            // Actually, simpler:
-            // We search from max_layer_global down to layer_max + 1 (if layer_max < max_layer_global).
-            // If layer_max >= max_layer_global, we don't search/zoom at all, we just start at max_layer_global.
             
             if layer_max < max_layer_global {
                 for level in (layer_max + 1..=max_layer_global).rev() {
                     let (next_obj, next_dist) = self.search_layer(&vector, curr_obj, 1, level, dist_func)[0];
                     curr_obj = next_obj;
-                    curr_dist = next_dist;
+                    _curr_dist = next_dist;
                 }
             }
 
-            // 2. Insert from min(layer_max, max_layer_global) down to 0
             let start_layer = std::cmp::min(layer_max, max_layer_global);
             
             for level in (0..=start_layer).rev() {
-                // Search for ef_construction neighbors
                 let candidates = self.search_layer(&vector, curr_obj, self.ef_construction, level, dist_func);
                 
-                // Select neighbors (simple heuristic: take top M)
                 let m_level = if level == 0 { self.m0 } else { self.m };
                 let neighbors: Vec<usize> = candidates.iter().take(m_level).map(|(id, _)| *id).collect();
 
                 // Bidirectional connection
-                node.connections[level] = neighbors.clone();
+                self.nodes[id].connections[level] = neighbors.clone();
+                
                 for &neighbor_id in &neighbors {
                     self.nodes[neighbor_id].connections[level].push(id);
-                    // Prune if > M_max
                     let max_links = if level == 0 { self.m0 } else { self.m };
                     self.prune_connections(neighbor_id, level, max_links, dist_func);
                 }
                 
-                // Update entry point for next layer
                 curr_obj = candidates[0].0; 
             }
             
-            // Update global entry point if this node is higher
             if layer_max > max_layer_global {
                 self.entry_point = Some(id);
             }
@@ -125,7 +111,6 @@ impl HNSW {
             self.entry_point = Some(id);
         }
 
-        self.nodes.push(node);
         id
     }
 
@@ -204,19 +189,18 @@ impl HNSW {
     }
 
     fn prune_connections(&mut self, node_id: usize, level: usize, max_links: usize, dist_func: crate::simd::DistanceFunc) {
-        let connections = &mut self.nodes[node_id].connections[level];
-        if connections.len() <= max_links {
+        // Clone connections to avoid borrowing `self` mutably (via nodes -> connections) 
+        // while we need to read `self` (via nodes -> vector) later.
+        let connection_ids = self.nodes[node_id].connections[level].clone();
+        
+        if connection_ids.len() <= max_links {
             return;
         }
 
-        // We need to sort neighbors by distance to node_id
-        // We can't use self.nodes inside the closure easily due to borrow checker (mutable borrow of connections vs immutable borrow of vectors).
-        // So we extract neighbor vectors first? No, that's expensive.
-        // We can use indices and unsafe, or just clone the vector of node_id first.
         let node_vector = self.nodes[node_id].vector.clone();
         
         // Calculate distances
-        let mut candidates: Vec<(usize, f32)> = connections.iter().map(|&n_id| {
+        let mut candidates: Vec<(usize, f32)> = connection_ids.iter().map(|&n_id| {
             let dist = unsafe { dist_func(&node_vector, &self.nodes[n_id].vector) };
             (n_id, dist)
         }).collect();
@@ -225,7 +209,7 @@ impl HNSW {
         candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
         // Keep top max_links
-        *connections = candidates.into_iter().take(max_links).map(|(id, _)| id).collect();
+        self.nodes[node_id].connections[level] = candidates.into_iter().take(max_links).map(|(id, _)| id).collect();
     }
 
     pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
@@ -233,6 +217,7 @@ impl HNSW {
         use crate::storage::format::{Header, OnDiskNode};
         use bytemuck::bytes_of;
         use crc32fast::Hasher;
+        use crate::core::quantization::Quantizer;
 
         let mut file = std::fs::File::create(path)?;
         let num_nodes = self.nodes.len();
@@ -241,14 +226,24 @@ impl HNSW {
         // 1. Calculate sizes and offsets
         let header_size = 256;
         let nodes_size = num_nodes * std::mem::size_of::<OnDiskNode>();
-        let vectors_size = num_nodes * dim * 4;
         
-        // Calculate connection arena size and offsets
+        let nodes_end = header_size + nodes_size;
+        
+        // Alignment Padding for Quantized Vectors (u8)
+        let pad1 = if nodes_end % 32 != 0 { 32 - (nodes_end % 32) } else { 0 };
+        let quantized_vectors_offset = nodes_end + pad1;
+        let quantized_vectors_size = num_nodes * dim * 1; // u8
+        
+        let quantized_end = quantized_vectors_offset + quantized_vectors_size;
+        
+        // Alignment Padding for Full Vectors (f32)
+        let pad2 = if quantized_end % 32 != 0 { 32 - (quantized_end % 32) } else { 0 };
+        let vectors_offset = quantized_end + pad2;
+        let vectors_size = num_nodes * dim * 4; // f32
+        
+        // Calculate connection arena
         let mut connections_data = Vec::new();
         let mut node_connection_offsets = Vec::with_capacity(num_nodes);
-
-        // We store connections as a flat u32 array: [count, n1, n2...]
-        // The offset in OnDiskNode is the BYTE offset into the connections arena.
         let mut current_connections_byte_offset = 0;
 
         for node in &self.nodes {
@@ -259,40 +254,36 @@ impl HNSW {
                 for &n in neighbors {
                     connections_data.push(n as u32);
                 }
-                current_connections_byte_offset += 4; // for count
-                current_connections_byte_offset += neighbors.len() * 4; // for neighbors
+                current_connections_byte_offset += 4;
+                current_connections_byte_offset += neighbors.len() * 4;
             }
         }
-        let connections_size = current_connections_byte_offset;
-
-        let nodes_offset = header_size as u64;
-        let vectors_offset = nodes_offset + nodes_size as u64;
-        let connections_offset = vectors_offset + vectors_size as u64;
+        
+        let connections_offset = vectors_offset + vectors_size;
 
         // 2. Create Placeholder Header
-        let obfuscation_key: u64 = rand::random();
-
+        // Note: Obfuscation Key is removed/unused in this Zero-Copy version as per Plan
         let mut header = Header {
             magic: *b"HNSWANN1",
             version: 1,
             dimension: dim as u32,
             num_elements: num_nodes as u32,
             entry_point_id: self.entry_point.unwrap_or(0) as u32,
-            max_layer: self.nodes.get(self.entry_point.unwrap_or(0)).map_or(0, |n| n.layer_max) as u32,
+            max_layer: self.nodes.get(self.entry_point.unwrap_or(0)).map_or(0, |n| n.layer_max) as u16,
+            padding_1: 0,
+            m_max: self.m as u32,
+            m_max_0: self.m0 as u32,
             ef_construction: self.ef_construction as u32,
-            m: self.m as u32,
-            m0: self.m0 as u32,
-            nodes_offset: nodes_offset as u64,
+            nodes_offset: header_size as u64,
+            quantized_vectors_offset: quantized_vectors_offset as u64,
             vectors_offset: vectors_offset as u64,
             connections_offset: connections_offset as u64,
-            obfuscation_key,
-            checksum: 0, 
-            padding_2: [0; 22],
+            checksum: 0,
+            obfuscation_key: 0, 
+            padding_2: [0; 21],
         };
 
         file.write_all(bytes_of(&header))?;
-
-        // Initialize Hasher
         let mut hasher = Hasher::new();
 
         // 3. Write Nodes
@@ -307,26 +298,43 @@ impl HNSW {
             hasher.update(bytes);
         }
 
-        // 4. Write Vectors (Obfuscated)
-        let key_32 = (obfuscation_key & 0xFFFFFFFF) as u32;
+        // 4. Write Padding 1
+        let pad_zeros = vec![0u8; pad1];
+        file.write_all(&pad_zeros)?;
+        hasher.update(&pad_zeros);
+
+        // 5. Write Quantized Vectors (u8)
+        // We prefer to iterate once and do both logic, but writing sequentially is easier for disk layout.
+        // We will iterate nodes again.
         for node in &self.nodes {
-            for &val in &node.vector {
-                let bits = val.to_bits();
-                let scrambled = bits ^ key_32;
-                let bytes = scrambled.to_le_bytes();
-                file.write_all(&bytes)?;
-                hasher.update(&bytes);
-            }
+            let mut vec = node.vector.clone();
+            Quantizer::l2_normalize(&mut vec); // Normalize first
+            let q_vec = Quantizer::quantize_u8(&vec);
+            file.write_all(&q_vec)?;
+            hasher.update(&q_vec);
         }
 
-        // 5. Write Connections
+        // 6. Write Padding 2
+        let pad_zeros_2 = vec![0u8; pad2];
+        file.write_all(&pad_zeros_2)?;
+        hasher.update(&pad_zeros_2);
+        
+        // 7. Write Full Precision Vectors (f32) - Normalized
+        for node in &self.nodes {
+            let mut vec = node.vector.clone();
+            Quantizer::l2_normalize(&mut vec);
+            let bytes = bytemuck::cast_slice(&vec);
+            file.write_all(bytes)?;
+            hasher.update(bytes);
+        }
+
+        // 8. Write Connections
         let bytes = bytemuck::cast_slice(&connections_data);
         file.write_all(bytes)?;
         hasher.update(bytes);
 
-        // 6. Finalize Checksum and Update Header
+        // 9. Finalize
         header.checksum = hasher.finalize() as u64;
-        
         file.seek(SeekFrom::Start(0))?;
         file.write_all(bytes_of(&header))?;
 

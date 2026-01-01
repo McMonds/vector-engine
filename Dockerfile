@@ -1,24 +1,40 @@
-FROM rust:1.74-slim-bookworm
+# Stage 1: Builder
+FROM rust:1.83-bullseye as builder
 
-# Install Python for simple HTTP server and build essentials
-RUN apt-get update && apt-get install -y python3 build-essential && rm -rf /var/lib/apt/lists/*
+WORKDIR /usr/src/vector_engine
+
+# Copy manifests first for caching
+COPY Cargo.toml Cargo.lock ./
+
+# Create dummy main to cache dependencies
+RUN mkdir src && \
+    echo "fn main() {}" > src/lib.rs && \
+    echo "fn main() {}" > src/main.rs
+
+RUN cargo build --release || true
+
+# Clean dummy build
+RUN rm -rf src
+
+# Copy actual source code
+COPY src ./src
+
+# Build release binaries
+RUN cargo build --release --bins
+
+# Stage 2: Runtime
+FROM debian:bullseye-slim
+
+RUN apt-get update && apt-get install -y \
+    libssl-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy manifest and source
-COPY Cargo.toml Cargo.lock ./
-COPY src ./src
-COPY viz.html ./
+# Copy binaries
+COPY --from=builder /usr/src/vector_engine/target/release/generator /usr/local/bin/
+COPY --from=builder /usr/src/vector_engine/target/release/stress_test /usr/local/bin/
 
-# Build release binaries
-RUN cargo build --release
-
-# Expose port for visualization (8000) and API (8080)
-EXPOSE 8000
-EXPOSE 8080
-
-# Copy entrypoint script
-COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
-ENTRYPOINT ["docker-entrypoint.sh"]
+# Default command
+CMD ["stress_test", "--help"]

@@ -1,0 +1,10 @@
+target/
+**/*.bin
+**/*.log
+.git/
+.env
+*.mmd
+GAP_ANALYSIS.md
+RISK_REGISTER.md
+viz.html
+graph.json
