@@ -1,6 +1,6 @@
 [package]
 name = "vector_engine"
-version = "2.1.0"
+version = "2.2.0"
 edition = "2021"
 authors = ["McMonds <mondolshimul000@gmail.com>"]
 description = "A high-performance, memory-mapped zero-copy vector search engine (1.8M+ QPS)."
@@ -37,6 +37,8 @@ core_affinity = "0.8.3"
 ratatui = "0.30.0"
 crossterm = "0.29.0"
 clap = { version = "4.5.53", features = ["derive"] }
+sysinfo = "0.30"
+hdrhistogram = "7.5"
 
 
 [dev-dependencies]
