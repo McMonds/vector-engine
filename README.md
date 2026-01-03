@@ -18,13 +18,13 @@ The following metrics represent real-time convergence on constrained hardware (4
 
 | Metric | 100k Vectors | 1 Million Vectors |
 | :--- | :--- | :--- |
-| **Mean Throughput** | **51,994 QPS** | **24,270 QPS** |
-| **Peak Throughput** | **52,353 QPS** | **26,578 QPS** |
-| **P99 Tail Latency** | **372 µs** | **2,043 µs** |
-| **Avg Search Latency** | **75.0 µs** | **161.9 µs** |
+| **Mean Throughput** | **58,072 QPS** | **24,270 QPS** |
+| **Peak Throughput** | **58,834 QPS** | **26,578 QPS** |
+| **P99 Tail Latency** | **295 µs** | **2,043 µs** |
+| **Avg Search Latency** | **66.7 µs** | **161.9 µs** |
 | **Recall (Calibrated)** | **> 95%** | **> 95%** |
-| **Stability Score** | **99.71%** | **98.15%** |
-| **Convergence Time** | **5.06s** | **8.99s** |
+| **Stability Score** | **99.28%** | **98.15%** |
+| **Convergence Time** | **5.00s** | **8.99s** |
 
 > [!NOTE]
 > The engine utilizes **Steady-State Detection** to ensure these results are statistically valid. Benchmarks auto-terminate only once the **Coefficient of Variation** drops below 2%.
