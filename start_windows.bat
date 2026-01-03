@@ -78,8 +78,8 @@ IF %ERRORLEVEL% NEQ 0 (
 )
 
 :: Build
-ECHO Building Image (v2.0.0)...
-docker build -t vector-engine:v2 .
+ECHO Building Image (v2.1.0)...
+docker build -t vector-engine:v2.1 .
 IF %ERRORLEVEL% NEQ 0 (
     ECHO [ERROR] Docker Build failed.
     PAUSE
@@ -89,12 +89,12 @@ IF %ERRORLEVEL% NEQ 0 (
 :: Run Generator (if data doesn't exist)
 ECHO.
 ECHO Generating Benchmark Data (100k Vectors)...
-docker run --rm -v vector_data:/data vector-engine:v2 generator --num-vectors 100000 --output /data/bench.bin --m 24 --ef 200
+docker run --rm -v vector_data:/data vector-engine:v2.1 generator --num-vectors 100000 --output /data/bench.bin --m 24 --ef 200
 
 :: Run Benchmark
 ECHO.
 ECHO Running Stress Test...
-docker run -it --rm -v vector_data:/data vector-engine:v2 stress_test --index /data/bench.bin --concurrency %NUMBER_OF_PROCESSORS%
+docker run -it --rm -v vector_data:/data vector-engine:v2.1 stress_test --index /data/bench.bin --concurrency %NUMBER_OF_PROCESSORS%
 
 ECHO.
 ECHO ===================================================

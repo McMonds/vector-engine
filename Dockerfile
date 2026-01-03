@@ -1,5 +1,8 @@
 # Stage 1: Builder
 FROM rust:1.83-bullseye as builder
+LABEL maintainer="McMonds"
+LABEL version="2.1.0"
+LABEL description="Vector Engine V2 - 1.83M QPS Build"
 
 WORKDIR /usr/src/vector_engine
 

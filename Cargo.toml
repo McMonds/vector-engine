@@ -1,7 +1,12 @@
 [package]
 name = "vector_engine"
-version = "0.1.0"
+version = "2.1.0"
 edition = "2021"
+authors = ["McMonds <mondolshimul000@gmail.com>"]
+description = "A high-performance, memory-mapped zero-copy vector search engine (1.8M+ QPS)."
+license = "MIT"
+repository = "https://github.com/McMonds/vector-engine"
+keywords = ["vector-search", "ann", "simd", "mmap", "high-performance"]
 
 [dependencies]
 # Core Systems
