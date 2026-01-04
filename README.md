@@ -76,24 +76,64 @@ graph LR
 
 ---
 
-## 🐳 Deployment & Usage
+## 🚀 Deployment & Usage Guide
 
-### Rapid Benchmarking (Autonomous Mode)
-The engine will automatically detect hardware, calibrate recall targets, and run until the results converge.
+Follow these sequential steps to initialize the engine and run benchmarks.
+
+### Step 1: Clone & Build
+Ensure you have Rust 1.74+ installed.
+```bash
+git clone https://github.com/McMonds/vector-engine.git
+cd vector-engine
+cargo build --release
+```
+
+### Step 2: Generate Vector Index (Mandatory)
+Since binary index files are large, they must be generated locally. **Benchmarks will fail if this file is missing.**
+```bash
+# Generate 1 Million vectors (Default benchmark target)
+./target/release/generator --num-vectors 1000000 --output production.bin
+```
+
+### Step 3: Run Benchmark
+You can run in **Autonomous**, **Safe**, or **Manual** modes.
+
+#### A. Autonomous Mode (Recommended)
+Automatically detects hardware, calibrates accuracy, and detects steady-state convergence.
 ```bash
 ./target/release/stress_test --index production.bin
 ```
 
-### Production Safe Mode
-Limits hardware utilization to physical cores only (50% on SMT systems).
+#### B. Production Safe Mode
+Saturates only physical cores (50% utilization on SMT/Hyperthreaded systems).
 ```bash
 ./target/release/stress_test --index production.bin --safe-mode
 ```
 
-### Manual Precision Override
+#### C. Manual Override
 ```bash
 ./target/release/stress_test --index production.bin --concurrency 16 --ef 128 --duration 60
 ```
+
+---
+
+## 🛠️ CLI Reference
+
+### `generator`
+| Flag | Description | Default |
+| :--- | :--- | :--- |
+| `--num-vectors` | Total vectors to insert | `1,000,000` |
+| `--output` | Destination path for `.bin` index | `production.bin` |
+
+### `stress_test`
+| Flag | Description | Default |
+| :--- | :--- | :--- |
+| `--index` | Path to the generated `.bin` file | **Required** |
+| `--concurrency` | Number of search threads | Auto (Saturate) |
+| `--ef` | Search depth (Lower = Faster, Higher = Accurate) | Auto (Pareto) |
+| `--duration` | Maximum test duration in seconds | 30s (or Steady-State) |
+| `--k` | Top-K neighbors to return | `10` |
+| `--safe-mode` | Limit threading to physical cores only | `false` |
 
 ---
 
