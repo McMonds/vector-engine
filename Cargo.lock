@@ -2145,7 +2145,7 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "vector_engine"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "axum",
  "bitflags 2.10.0",
